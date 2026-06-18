@@ -11,6 +11,14 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def get_setting(key):
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = cur.fetchone()
+    conn.close()
+    return row["value"] if row else None
+
 def fmt_prev(val):
     try:
         return f"{float(val):08.1f}"
@@ -76,10 +84,10 @@ def meter_page(meter_id):
     message = ""
 
     if request.method == "POST":
-        current_raw = request.form.get("current", "").strip()
-        if not current_raw:
-            message = "Ошибка: пустое значение"
+        if get_setting("input_allowed") != "1":
+            message = "❌ Приём показаний закрыт. Обратитесь к администратору."
         else:
+            current_raw = request.form.get("current", "").strip()
             try:
                 current_value = float(current_raw)
                 prev_value    = float(prev_val) if prev_val else 0
@@ -146,9 +154,6 @@ def meter_page(meter_id):
       <tr><td><b>Введённые показания</b></td><td>{cur_fmt}</td></tr>
       <tr><td><b>{unit} израсходовано</b></td><td>{rashod:.2f}</td></tr>
       <tr><td><b>Цена за {unit}</b></td><td>{price} ₸</td></tr>
-      <tr><td><b>Долг на {row['date']}</b></td><td>{dolg} ₸</td></tr>
-      <tr><td><b>Ежемесячная аренда</b></td><td>{rent} ₸</td></tr>
-      <tr class="table-warning"><td><b>Общая сумма</b></td><td><b>{itogo:.2f} ₸</b></td></tr>
     </table>
 
     {"<div class='alert alert-success'>" + message + "</div>" if "✅" in message else ""}
@@ -157,11 +162,7 @@ def meter_page(meter_id):
     <form method="POST">
       <input class="form-control mb-2" type="number" step="0.01"
              name="current" placeholder="Текущие показания ({unit})" required>
-      <button class="btn btn-primary w-100">Сохранить</button>
-        </form>
-        <a href="{kaspi_url}" class="btn btn-warning w-100 mt-2" target="_blank">
-      💳 Оплатить через Kaspi
-    </a>
+      <button class="btn btn-primary w-100">Сохранить</button>   
     <a href="/login/{row['iin']}" class="btn btn-outline-secondary w-100 mt-2">
       👤 Личный кабинет
     </a>  
@@ -548,23 +549,28 @@ def cabinet(iin):
 <body class="bg-light">
 <div class="container mt-3">
 
+  <div class="card shadow-sm p-3 mb-3">
+    <h5>{name}</h5>
+    <p class="mb-1 text-muted">ИИН: {iin}</p>
+    <select class="form-select" onchange="location.href='/cabinet/{iin}?period='+this.value">
+      {options_html}
+    </select>
+  </div>
+
   {rows_html}
-  
-    <div class="card shadow p-3 mb-4">
-        <h5 class="text-center">Итого за {period}</h5>
-        <table class="table table-sm mb-2">
-          <tr><td>Сумма долга на текущий период </td><td class="text-end">{dolg_total} ₸</td></tr>
-          <tr><td>Стоимость аренды и комп. платежей </td><td class="text-end">{total_itogo - dolg_total:.2f} ₸</td></tr>
-        </table>
-        <h3 class="text-center text-primary">{total_itogo:.2f} ₸</h3>
-        <a href="{kaspi_url_total}" class="btn btn-warning w-100 mt-2" target="_blank">
-          💳 Оплатить через Kaspi
-        </a>
-     </div>
 
+  <div class="card shadow p-3 mb-4">
+    <h5 class="text-center">Итого за {period}</h5>
+    <table class="table table-sm mb-2">
+      <tr><td>Сумма долга на текущий период</td><td class="text-end">{dolg_total} ₸</td></tr>
+      <tr><td>Стоимость аренды и комп. платежей</td><td class="text-end">{total_itogo - dolg_total:.2f} ₸</td></tr>
+    </table>
+    <h3 class="text-center text-primary">{total_itogo:.2f} ₸</h3>
+    <a href="{kaspi_url_total}" class="btn btn-warning w-100 mt-2" target="_blank">
+      💳 Оплатить через Kaspi
+    </a>
+  </div>
 
-
-  
   <a href="/" class="btn btn-secondary w-100 mb-4">← На главную</a>
 
 </div>
@@ -711,6 +717,27 @@ def clear_all():
     conn.close()
 
     return jsonify({"status": "ok", "deleted": deleted})
+
+@app.route("/api/open_period", methods=["POST"])
+def open_period():
+    conn = get_db()
+    conn.execute("UPDATE settings SET value = '1' WHERE key = 'input_allowed'")
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "input_allowed": True})
+
+@app.route("/api/close_period", methods=["POST"])
+def close_period():
+    conn = get_db()
+    conn.execute("UPDATE settings SET value = '0' WHERE key = 'input_allowed'")
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "input_allowed": False})
+
+@app.route("/api/input_status", methods=["GET"])
+def input_status():
+    allowed = get_setting("input_allowed")
+    return jsonify({"input_allowed": allowed == "1"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
