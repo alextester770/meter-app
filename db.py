@@ -30,10 +30,18 @@ def init_db():
         ePrice INTEGER DEFAULT 0,
         gPrice INTEGER DEFAULT 0,
         wPrice INTEGER DEFAULT 0,
-        pim TEXT
+        pin TEXT
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
+    c.execute("INSERT OR IGNORE INTO settings VALUES ('input_allowed', '0')")
+    
     conn.commit()
     conn.close()
 
